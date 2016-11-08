@@ -1,29 +1,29 @@
 /* GLOBAL CONSTANTS AND VARIABLES */
 
 /* assignment specific globals */
-const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles.json"; // triangles file loc
-const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog3/spheres.json"; // spheres file loc
-var Eye = vec3.fromValues(0.5,0.5,-0.5); // default eye position in world space
-var Center = vec3.fromValues(0.5,0.5,0.5); // default eye position in world space
-var Up = vec3.fromValues(0,1,0); // default view up vector
+const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog2/triangles.json"; // triangles file loc
+const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog2/spheres.json"; // spheres file loc
+var defaultEye = vec3.fromValues(0.5,0.5,-0.5); // default eye position in world space
+var defaultCenter = vec3.fromValues(0.5,0.5,0.5); // default view direction in world space
+var defaultUp = vec3.fromValues(0,1,0); // default view up vector
 var lightAmbient = vec3.fromValues(1,1,1); // default light ambient emission
 var lightDiffuse = vec3.fromValues(1,1,1); // default light diffuse emission
 var lightSpecular = vec3.fromValues(1,1,1); // default light specular emission
 var lightPosition = vec3.fromValues(2,4,-0.5); // default light position
 
-/* webgl globals */
+/* webgl and geometry data */
 var gl = null; // the all powerful gl object. It's all here folks!
 var inputTriangles = []; // the triangle data as loaded from input files
 var numTriangleSets = 0; // how many triangle sets in input scene
 var inputSpheres = []; // the sphere data as loaded from input files
 var numSpheres = 0; // how many spheres in the input scene
-var sphereHighlighted = false; // no spheres highlighted
-var triHighlighted = false; // no tris highlighted
-var highlightedObj = -1; // which tri set or sphere is highlighted (nothing)
 var vertexBuffers = []; // this contains vertex coordinate lists by set, in triples
 var normalBuffers = []; // this contains normal component lists by set, in triples
 var triSetSizes = []; // this contains the size of each triangle set
-var triangleBuffers = []; // this contains lists of indices into vertexBuffers by set, in triples
+var triangleBuffers = []; // lists of indices into vertexBuffers by set, in triples
+var viewDelta = 0; // how much to displace view with each key press
+
+/* shader parameter locations */
 var vPosAttribLoc; // where to put position for vertex shader
 var ambientULoc; // where to put ambient reflecivity for fragment shader
 var diffuseULoc; // where to put diffuse reflecivity for fragment shader
@@ -32,6 +32,13 @@ var shininessULoc; // where to put specular exponent for fragment shader
 var mMatrixULoc; // where to put model matrix for vertex shader
 var pvmMatrixULoc; // where to put project model view matrix for vertex shader
 
+/* interaction variables */
+var sphereHighlighted = false; // no spheres highlighted
+var triHighlighted = false; // no tris highlighted
+var highlightedObj = -1; // which tri set or sphere is highlighted (nothing)
+var Eye = vec3.clone(defaultEye); // eye position in world space
+var Center = vec3.clone(defaultCenter); // view direction in world space
+var Up = vec3.clone(defaultUp); // view up vector in world space
 
 // ASSIGNMENT HELPER FUNCTIONS
 
@@ -93,6 +100,10 @@ function handleKeyDown(event) {
         triHighlighted = false; 
     } // end highlight sphere
     
+    var lookAt = vec3.create(), viewRight = vec3.create(), temp = vec3.create(); // lookat, right & temp vectors
+    lookAt = vec3.normalize(lookAt,vec3.subtract(temp,Center,Eye)); // get lookat vector
+    viewRight = vec3.normalize(viewRight,vec3.cross(temp,Up,lookAt)); // get view right vector
+    
     switch (event.code) {
         case "Space":
             if (sphereHighlighted)
@@ -103,17 +114,41 @@ function handleKeyDown(event) {
             sphereHighlighted = false; // no sphere highlighted
             triHighlighted = false; // no tri set highlighted
             break;
-        case "ArrowRight":
+        case "ArrowRight": // select next triangle set
             highlightTriSet((highlightedObj+1) % numTriangleSets);
             break;
-        case "ArrowLeft":
+        case "ArrowLeft": // select previous triangle set
             highlightTriSet((highlightedObj != 0) ? highlightedObj-1 : numTriangleSets-1);
             break;
-        case "ArrowUp":
+        case "ArrowUp": // select next sphere
             highlightSphere((highlightedObj+1) % numSpheres);
             break;
-        case "ArrowDown":
+        case "ArrowDown": // select previous sphere
             highlightSphere((highlightedObj != 0) ? highlightedObj-1 : numSpheres-1);
+            break;
+        case "KeyA": // translate view left
+            Eye = vec3.add(Eye,Eye,vec3.scale(temp,viewRight,-viewDelta));
+            Center = vec3.add(Center,Center,vec3.scale(temp,viewRight,-viewDelta));
+            break;
+        case "KeyD": // translate view right
+            Eye = vec3.add(Eye,Eye,vec3.scale(temp,viewRight,viewDelta));
+            Center = vec3.add(Center,Center,vec3.scale(temp,viewRight,viewDelta));
+            break;
+        case "KeyS": // translate view backward
+            Eye = vec3.add(Eye,Eye,vec3.scale(temp,lookAt,-viewDelta));
+            Center = vec3.add(Center,Center,vec3.scale(temp,lookAt,-viewDelta));
+            break;
+        case "KeyW": // translate view forward
+            Eye = vec3.add(Eye,Eye,vec3.scale(temp,lookAt,viewDelta));
+            Center = vec3.add(Center,Center,vec3.scale(temp,lookAt,viewDelta));
+            break;
+        case "KeyQ": // translate view up
+            Eye = vec3.add(Eye,Eye,vec3.scale(temp,Up,viewDelta));
+            Center = vec3.add(Center,Center,vec3.scale(temp,Up,viewDelta));
+            break;
+        case "KeyE": // translate view down
+            Eye = vec3.add(Eye,Eye,vec3.scale(temp,Up,-viewDelta));
+            Center = vec3.add(Center,Center,vec3.scale(temp,Up,-viewDelta));
             break;
     } // end switch
 } // end handleKeyDown
@@ -184,8 +219,8 @@ function loadModels() {
                         sphereTriangles.push(llVertex,llVertex+numLongSteps,llVertex+numLongSteps+1);
                         sphereTriangles.push(llVertex,llVertex+numLongSteps+1,llVertex+1);
                     } // end for each longitude
-                    sphereTriangles.push(llVertex+1,llVertex+numLongSteps+1,llVertex-numLongSteps+1);
-                    sphereTriangles.push(llVertex+1,llVertex-numLongSteps+1,llVertex-numLongSteps+2);
+                    sphereTriangles.push(llVertex+1,llVertex+numLongSteps+1,llVertex+2);
+                    sphereTriangles.push(llVertex+1,llVertex+2,llVertex-numLongSteps+2);
                 } // end for each latitude
                 for (var whichLong=llVertex+2; whichLong<llVertex+numLongSteps+1; whichLong++) // north pole
                     sphereTriangles.push(whichLong,sphereVertices.length/3-1,whichLong+1);
@@ -210,6 +245,8 @@ function loadModels() {
             var vtxToAdd; // vtx coords to add to the coord array
             var normToAdd; // vtx normal to add to the coord array
             var triToAdd; // tri indices to add to the index array
+            var maxCorner = vec3.fromValues(Number.MIN_VALUE,Number.MIN_VALUE,Number.MIN_VALUE); // bbox corner
+            var minCorner = vec3.fromValues(Number.MAX_VALUE,Number.MAX_VALUE,Number.MAX_VALUE); // other corner
         
             // process each triangle set to load webgl vertex and triangle buffers
             numTriangleSets = inputTriangles.length; // remember how many tri sets
@@ -229,6 +266,8 @@ function loadModels() {
                     normToAdd = inputTriangles[whichSet].normals[whichSetVert]; // get normal to add
                     inputTriangles[whichSet].glVertices.push(vtxToAdd[0],vtxToAdd[1],vtxToAdd[2]); // put coords in set coord list
                     inputTriangles[whichSet].glNormals.push(normToAdd[0],normToAdd[1],normToAdd[2]); // put normal in set coord list
+                    vec3.max(maxCorner,maxCorner,vtxToAdd); // update world bounding box corner maxima
+                    vec3.min(minCorner,minCorner,vtxToAdd); // update world bounding box corner minima
                 } // end for vertices in set
 
                 // send the vertex coords and normals to webGL
@@ -260,10 +299,20 @@ function loadModels() {
                 throw "Unable to load spheres file!";
             else {
                 
-                // init sphere highlighting, translation and rotation
+                // init sphere highlighting, translation and rotation; update bbox
+                var sphere; // current sphere
+                var temp = vec3.create(); // an intermediate vec3
+                var minXYZ = vec3.create(), maxXYZ = vec3.create();  // min/max xyz from sphere
                 numSpheres = inputSpheres.length; // remember how many spheres
-                for (var whichSphere=0; whichSphere<numSpheres; whichSphere++)
-                    inputSpheres[whichSphere].highlighted = false; 
+                for (var whichSphere=0; whichSphere<numSpheres; whichSphere++) {
+                    sphere = inputSpheres[whichSphere];
+                    sphere.highlighted = false; 
+                    vec3.set(minXYZ,sphere.x-sphere.r,sphere.y-sphere.r,sphere.z-sphere.r); 
+                    vec3.set(maxXYZ,sphere.x+sphere.r,sphere.y+sphere.r,sphere.z+sphere.r); 
+                    vec3.min(minCorner,minCorner,minXYZ); // update world bbox min corner
+                    vec3.max(maxCorner,maxCorner,maxXYZ); // update world bbox max corner
+                } // end for each sphere
+                viewDelta = vec3.length(vec3.subtract(temp,maxCorner,minCorner)) / 100; // set global
 
                 // make one sphere instance that will be reused
                 var oneSphere = makeSphere(32);
