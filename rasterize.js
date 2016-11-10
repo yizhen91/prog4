@@ -1,8 +1,8 @@
 /* GLOBAL CONSTANTS AND VARIABLES */
 
 /* assignment specific globals */
-const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog3/triangles.json"; // triangles file loc
-const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog3/spheres.json"; // spheres file loc
+const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog2/triangles.json"; // triangles file loc
+const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog2/spheres.json"; // spheres file loc
 var defaultEye = vec3.fromValues(0.5,0.5,-0.5); // default eye position in world space
 var defaultCenter = vec3.fromValues(0.5,0.5,0.5); // default view direction in world space
 var defaultUp = vec3.fromValues(0,1,0); // default view up vector
@@ -10,6 +10,7 @@ var lightAmbient = vec3.fromValues(1,1,1); // default light ambient emission
 var lightDiffuse = vec3.fromValues(1,1,1); // default light diffuse emission
 var lightSpecular = vec3.fromValues(1,1,1); // default light specular emission
 var lightPosition = vec3.fromValues(2,4,-0.5); // default light position
+var rotateTheta = Math.PI/50; // how much to rotate models by with each key press
 
 /* webgl and geometry data */
 var gl = null; // the all powerful gl object. It's all here folks!
@@ -33,9 +34,6 @@ var mMatrixULoc; // where to put model matrix for vertex shader
 var pvmMatrixULoc; // where to put project model view matrix for vertex shader
 
 /* interaction variables */
-var sphereHighlighted = false; // no spheres highlighted
-var triHighlighted = false; // no tris highlighted
-var highlightedObj = -1; // which tri set or sphere is highlighted (nothing)
 var Eye = vec3.clone(defaultEye); // eye position in world space
 var Center = vec3.clone(defaultCenter); // view direction in world space
 var Up = vec3.clone(defaultUp); // view up vector in world space
@@ -72,83 +70,165 @@ function getJSONFile(url,descr) {
 // does stuff when keys are pressed
 function handleKeyDown(event) {
     
-    function highlightTriSet(newSet) {
-        if (triHighlighted) {
-            inputTriangles[highlightedObj].highlighted = false;
-            highlightedObj = newSet; 
-        } else {
-            if (sphereHighlighted)
-                inputSpheres[highlightedObj].highlighted = false;
-            highlightedObj = 0;
-        } // end if no triangle highlighted
-        inputTriangles[highlightedObj].highlighted = true; 
-        sphereHighlighted = false;
-        triHighlighted = true; 
-    } // end highlight triangle set
+    const modelEnum = {TRIANGLES: "triangles", SPHERE: "sphere"}; // enumerated model type
+    const dirEnum = {NEGATIVE: -1, POSITIVE: 1}; // enumerated rotation direction
     
-    function highlightSphere(newSphere) {
-        if (sphereHighlighted) {
-            inputSpheres[highlightedObj].highlighted = false;
-            highlightedObj = newSphere; 
-        } else {
-            if (triHighlighted)
-                inputTriangles[highlightedObj].highlighted = false;
-            highlightedObj = 0;
-        } // end if no sphere highlighted
-        inputSpheres[highlightedObj].highlighted = true; 
-        sphereHighlighted = true;
-        triHighlighted = false; 
-    } // end highlight sphere
+    function highlightModel(modelType,whichModel) {
+        if (handleKeyDown.modelOn != null)
+            handleKeyDown.modelOn.on = false;
+        handleKeyDown.whichOn = whichModel;
+        if (modelType == modelEnum.TRIANGLES)
+            handleKeyDown.modelOn = inputTriangles[whichModel]; 
+        else
+            handleKeyDown.modelOn = inputSpheres[whichModel]; 
+        handleKeyDown.modelOn.on = true; 
+    } // end highlight model
     
+    function translateModel(offset) {
+        if (handleKeyDown.modelOn != null)
+            vec3.add(handleKeyDown.modelOn.translation,handleKeyDown.modelOn.translation,offset);
+    } // end translate model
+
+    function rotateModel(axis,direction) {
+        if (handleKeyDown.modelOn != null) {
+            var newRotation = mat4.create();
+
+            mat4.fromRotation(newRotation,direction*rotateTheta,axis); // get a rotation matrix around passed axis
+            vec3.transformMat4(handleKeyDown.modelOn.xAxis,handleKeyDown.modelOn.xAxis,newRotation); // rotate model x axis tip
+            vec3.transformMat4(handleKeyDown.modelOn.yAxis,handleKeyDown.modelOn.yAxis,newRotation); // rotate model y axis tip
+        } // end if there is a highlighted model
+    } // end rotate model
+    
+    // set up needed view params
     var lookAt = vec3.create(), viewRight = vec3.create(), temp = vec3.create(); // lookat, right & temp vectors
     lookAt = vec3.normalize(lookAt,vec3.subtract(temp,Center,Eye)); // get lookat vector
-    viewRight = vec3.normalize(viewRight,vec3.cross(temp,Up,lookAt)); // get view right vector
+    viewRight = vec3.normalize(viewRight,vec3.cross(temp,lookAt,Up)); // get view right vector
     
+    // highlight static variables
+    handleKeyDown.whichOn = handleKeyDown.whichOn == undefined ? -1 : handleKeyDown.whichOn; // nothing selected initially
+    handleKeyDown.modelOn = handleKeyDown.modelOn == undefined ? null : handleKeyDown.modelOn; // nothing selected initially
+
     switch (event.code) {
-        case "Space":
-            if (sphereHighlighted)
-                inputSpheres[highlightedObj].highlighted = false;
-            else if (triHighlighted)
-                inputTriangles[highlightedObj].highlighted = false;
-            highlightedObj = -1; // nothing highlighted
-            sphereHighlighted = false; // no sphere highlighted
-            triHighlighted = false; // no tri set highlighted
+        
+        // model selection
+        case "Space": 
+            if (handleKeyDown.modelOn != null)
+                handleKeyDown.modelOn.on = false; // turn off highlighted model
+            handleKeyDown.modelOn = null; // no highlighted model
+            handleKeyDown.whichOn = -1; // nothing highlighted
             break;
         case "ArrowRight": // select next triangle set
-            highlightTriSet((highlightedObj+1) % numTriangleSets);
+            highlightModel(modelEnum.TRIANGLES,(handleKeyDown.whichOn+1) % numTriangleSets);
             break;
         case "ArrowLeft": // select previous triangle set
-            highlightTriSet((highlightedObj != 0) ? highlightedObj-1 : numTriangleSets-1);
+            highlightModel(modelEnum.TRIANGLES,(handleKeyDown.whichOn > 0) ? handleKeyDown.whichOn-1 : numTriangleSets-1);
             break;
         case "ArrowUp": // select next sphere
-            highlightSphere((highlightedObj+1) % numSpheres);
+            highlightModel(modelEnum.SPHERE,(handleKeyDown.whichOn+1) % numSpheres);
             break;
         case "ArrowDown": // select previous sphere
-            highlightSphere((highlightedObj != 0) ? highlightedObj-1 : numSpheres-1);
+            highlightModel(modelEnum.SPHERE,(handleKeyDown.whichOn > 0) ? handleKeyDown.whichOn-1 : numSpheres-1);
             break;
-        case "KeyA": // translate view left
-            Eye = vec3.add(Eye,Eye,vec3.scale(temp,viewRight,-viewDelta));
-            Center = vec3.add(Center,Center,vec3.scale(temp,viewRight,-viewDelta));
-            break;
-        case "KeyD": // translate view right
-            Eye = vec3.add(Eye,Eye,vec3.scale(temp,viewRight,viewDelta));
+            
+        // view change
+        case "KeyA": // translate view left, rotate left with shift
             Center = vec3.add(Center,Center,vec3.scale(temp,viewRight,viewDelta));
+            if (!event.getModifierState("Shift"))
+                Eye = vec3.add(Eye,Eye,vec3.scale(temp,viewRight,viewDelta));
             break;
-        case "KeyS": // translate view backward
-            Eye = vec3.add(Eye,Eye,vec3.scale(temp,lookAt,-viewDelta));
-            Center = vec3.add(Center,Center,vec3.scale(temp,lookAt,-viewDelta));
+        case "KeyD": // translate view right, rotate right with shift
+            Center = vec3.add(Center,Center,vec3.scale(temp,viewRight,-viewDelta));
+            if (!event.getModifierState("Shift"))
+                Eye = vec3.add(Eye,Eye,vec3.scale(temp,viewRight,-viewDelta));
             break;
-        case "KeyW": // translate view forward
-            Eye = vec3.add(Eye,Eye,vec3.scale(temp,lookAt,viewDelta));
-            Center = vec3.add(Center,Center,vec3.scale(temp,lookAt,viewDelta));
+        case "KeyS": // translate view backward, rotate up with shift
+            if (event.getModifierState("Shift")) {
+                Center = vec3.add(Center,Center,vec3.scale(temp,Up,viewDelta));
+                Up = vec.cross(Up,viewRight,vec3.subtract(lookAt,Center,Eye)); /* global side effect */
+            } else {
+                Eye = vec3.add(Eye,Eye,vec3.scale(temp,lookAt,-viewDelta));
+                Center = vec3.add(Center,Center,vec3.scale(temp,lookAt,-viewDelta));
+            } // end if shift not pressed
             break;
-        case "KeyQ": // translate view up
-            Eye = vec3.add(Eye,Eye,vec3.scale(temp,Up,viewDelta));
-            Center = vec3.add(Center,Center,vec3.scale(temp,Up,viewDelta));
+        case "KeyW": // translate view forward, rotate down with shift
+            if (event.getModifierState("Shift")) {
+                Center = vec3.add(Center,Center,vec3.scale(temp,Up,-viewDelta));
+                Up = vec.cross(Up,viewRight,vec3.subtract(lookAt,Center,Eye)); /* global side effect */
+            } else {
+                Eye = vec3.add(Eye,Eye,vec3.scale(temp,lookAt,viewDelta));
+                Center = vec3.add(Center,Center,vec3.scale(temp,lookAt,viewDelta));
+            } // end if shift not pressed
             break;
-        case "KeyE": // translate view down
-            Eye = vec3.add(Eye,Eye,vec3.scale(temp,Up,-viewDelta));
-            Center = vec3.add(Center,Center,vec3.scale(temp,Up,-viewDelta));
+        case "KeyQ": // translate view up, rotate counterclockwise with shift
+            if (event.getModifierState("Shift"))
+                Up = vec3.normalize(Up,vec3.add(Up,Up,vec3.scale(temp,viewRight,-viewDelta)));
+            else {
+                Eye = vec3.add(Eye,Eye,vec3.scale(temp,Up,viewDelta));
+                Center = vec3.add(Center,Center,vec3.scale(temp,Up,viewDelta));
+            } // end if shift not pressed
+            break;
+        case "KeyE": // translate view down, rotate clockwise with shift
+            if (event.getModifierState("Shift"))
+                Up = vec3.normalize(Up,vec3.add(Up,Up,vec3.scale(temp,viewRight,viewDelta)));
+            else {
+                Eye = vec3.add(Eye,Eye,vec3.scale(temp,Up,-viewDelta));
+                Center = vec3.add(Center,Center,vec3.scale(temp,Up,-viewDelta));
+            } // end if shift not pressed
+            break;
+        case "Escape": // reset view to default
+            Eye = vec3.copy(Eye,defaultEye);
+            Center = vec3.copy(Center,defaultCenter);
+            Up = vec3.copy(Up,defaultUp);
+            break;
+            
+        // model transformation
+        case "KeyK": // translate left, rotate left with shift
+            if (event.getModifierState("Shift"))
+                rotateModel(Up,dirEnum.NEGATIVE);
+            else
+                translateModel(vec3.scale(temp,viewRight,viewDelta));
+            break;
+        case "Semicolon": // translate right, rotate right with shift
+            if (event.getModifierState("Shift"))
+                rotateModel(Up,dirEnum.POSITIVE);
+            else
+                translateModel(vec3.scale(temp,viewRight,-viewDelta));
+            break;
+        case "KeyL": // translate backward, rotate up with shift
+            if (event.getModifierState("Shift"))
+                rotateModel(viewRight,dirEnum.POSITIVE);
+            else
+                translateModel(vec3.scale(temp,lookAt,-viewDelta));
+            break;
+        case "KeyO": // translate forward, rotate down with shift
+            if (event.getModifierState("Shift"))
+                rotateModel(viewRight,dirEnum.NEGATIVE);
+            else
+                translateModel(vec3.scale(temp,lookAt,viewDelta));
+            break;
+        case "KeyI": // translate up, rotate counterclockwise with shift 
+            if (event.getModifierState("Shift"))
+                rotateModel(lookAt,dirEnum.POSITIVE);
+            else
+                translateModel(vec3.scale(temp,Up,viewDelta));
+            break;
+        case "KeyP": // translate down, rotate clockwise with shift
+            if (event.getModifierState("Shift"))
+                rotateModel(lookAt,dirEnum.NEGATIVE);
+            else
+                translateModel(vec3.scale(temp,Up,-viewDelta));
+            break;
+        case "Backspace": // reset model transforms to default
+            for (var whichTriSet=0; whichTriSet<numTriangleSets; whichTriSet++) {
+                vec3.set(inputTriangles[whichTriSet].translation,0,0,0);
+                vec3.set(inputTriangles[whichTriSet].xAxis,1,0,0);
+                vec3.set(inputTriangles[whichTriSet].yAxis,0,1,0);
+            } // end for all triangle sets
+            for (var whichSphere=0; whichSphere<numSpheres; whichSphere++) {
+                vec3.set(inputSpheres[whichSphere].translation,0,0,0);
+                vec3.set(inputSpheres[whichTriSet].xAxis,1,0,0);
+                vec3.set(inputSpheres[whichTriSet].yAxis,0,1,0);
+            } // end for all spheres
             break;
     } // end switch
 } // end handleKeyDown
@@ -253,22 +333,26 @@ function loadModels() {
             for (var whichSet=0; whichSet<numTriangleSets; whichSet++) { // for each tri set
                 
                 // set up hilighting, modeling translation and rotation
-                inputTriangles[whichSet].highlighted = false; // not highlighted
-                inputTriangles[whichSet].translation = vec3.fromValues(0,0,0); // translation
-                // inputTriangles[whichSet].rotAngle = 0.0; // rotation angle
-                // inputTriangles[whichSet].rotAxis = vec3.create(); 
+                inputTriangles[whichSet].center = vec3.fromValues(0,0,0);  // center point of tri set
+                inputTriangles[whichSet].on = false; // not highlighted
+                inputTriangles[whichSet].translation = vec3.fromValues(0,0,0); // no translation
+                inputTriangles[whichSet].xAxis = vec3.fromValues(1,0,0); // model X axis
+                inputTriangles[whichSet].yAxis = vec3.fromValues(0,1,0); // model Y axis 
 
-                // set up the vertex and normal arrays
+                // set up the vertex and normal arrays, define model center and axes
                 inputTriangles[whichSet].glVertices = []; // flat coord list for webgl
                 inputTriangles[whichSet].glNormals = []; // flat normal list for webgl
-                for (whichSetVert=0; whichSetVert<inputTriangles[whichSet].vertices.length; whichSetVert++) { // verts in set
+                var numVerts = inputTriangles[whichSet].vertices.length; // num vertices in tri set
+                for (whichSetVert=0; whichSetVert<numVerts; whichSetVert++) { // verts in set
                     vtxToAdd = inputTriangles[whichSet].vertices[whichSetVert]; // get vertex to add
                     normToAdd = inputTriangles[whichSet].normals[whichSetVert]; // get normal to add
                     inputTriangles[whichSet].glVertices.push(vtxToAdd[0],vtxToAdd[1],vtxToAdd[2]); // put coords in set coord list
                     inputTriangles[whichSet].glNormals.push(normToAdd[0],normToAdd[1],normToAdd[2]); // put normal in set coord list
                     vec3.max(maxCorner,maxCorner,vtxToAdd); // update world bounding box corner maxima
                     vec3.min(minCorner,minCorner,vtxToAdd); // update world bounding box corner minima
+                    vec3.add(inputTriangles[whichSet].center,inputTriangles[whichSet].center,vtxToAdd); // add to ctr sum
                 } // end for vertices in set
+                vec3.scale(inputTriangles[whichSet].center,inputTriangles[whichSet].center,1/numVerts); // avg ctr sum
 
                 // send the vertex coords and normals to webGL
                 vertexBuffers[whichSet] = gl.createBuffer(); // init empty webgl set vertex coord buffer
@@ -306,7 +390,11 @@ function loadModels() {
                 numSpheres = inputSpheres.length; // remember how many spheres
                 for (var whichSphere=0; whichSphere<numSpheres; whichSphere++) {
                     sphere = inputSpheres[whichSphere];
-                    sphere.highlighted = false; 
+                    sphere.on = false; // spheres begin without highlight
+                    sphere.translation = vec3.fromValues(0,0,0); // spheres begin without translation
+                    sphere.xAxis = vec3.fromValues(1,0,0); // sphere X axis
+                    sphere.yAxis = vec3.fromValues(0,1,0); // sphere Y axis 
+                    sphere.center = vec3.fromValues(0,0,0); // sphere instance is at origin
                     vec3.set(minXYZ,sphere.x-sphere.r,sphere.y-sphere.r,sphere.z-sphere.r); 
                     vec3.set(maxXYZ,sphere.x+sphere.r,sphere.y+sphere.r,sphere.z+sphere.r); 
                     vec3.min(minCorner,minCorner,minXYZ); // update world bbox min corner
@@ -355,10 +443,15 @@ function setupShaders() {
         varying vec3 vVertexNormal; // interpolated normal for frag shader
 
         void main(void) {
+            
+            // vertex position
             vec4 vWorldPos4 = umMatrix * vec4(aVertexPosition, 1.0);
             vWorldPos = vec3(vWorldPos4.x,vWorldPos4.y,vWorldPos4.z);
-            vVertexNormal = aVertexNormal; 
             gl_Position = upvmMatrix * vec4(aVertexPosition, 1.0);
+
+            // vertex normal (assume no non-uniform scale)
+            vec4 vWorldNormal4 = umMatrix * vec4(aVertexNormal, 0.0);
+            vVertexNormal = normalize(vec3(vWorldNormal4.x,vWorldNormal4.y,vWorldNormal4.z)); 
         }
     `;
     
@@ -409,12 +502,10 @@ function setupShaders() {
     `;
     
     try {
-        // console.log("fragment shader: "+fShaderCode);
         var fShader = gl.createShader(gl.FRAGMENT_SHADER); // create frag shader
         gl.shaderSource(fShader,fShaderCode); // attach code to shader
         gl.compileShader(fShader); // compile the code for gpu execution
 
-        // console.log("vertex shader: "+vShaderCode);
         var vShader = gl.createShader(gl.VERTEX_SHADER); // create vertex shader
         gl.shaderSource(vShader,vShaderCode); // attach code to shader
         gl.compileShader(vShader); // compile the code for gpu execution
@@ -474,6 +565,24 @@ function setupShaders() {
 
 // render the loaded model
 function renderModels() {
+    
+    // construct the model transform matrix, based on model state
+    function makeModelTransform(currModel) {
+        var zAxis = vec3.create(), sumRotation = mat4.create(), temp = mat4.create(), negCenter = vec3.create();
+
+        vec3.normalize(zAxis,vec3.cross(zAxis,currModel.xAxis,currModel.yAxis)); // get the new model z axis
+        mat4.set(sumRotation, // get the composite rotation
+            currModel.xAxis[0], currModel.yAxis[0], zAxis[0], 0,
+            currModel.xAxis[1], currModel.yAxis[1], zAxis[1], 0,
+            currModel.xAxis[2], currModel.yAxis[2], zAxis[2], 0,
+            0, 0,  0, 1);
+        vec3.negate(negCenter,currModel.center);
+        mat4.multiply(sumRotation,sumRotation,mat4.fromTranslation(temp,negCenter)); // rotate * -translate
+        mat4.multiply(sumRotation,mat4.fromTranslation(temp,currModel.center),sumRotation); // translate * rotate * -translate
+        mat4.fromTranslation(mMatrix,currModel.translation); // translate in model matrix
+        mat4.multiply(mMatrix,mMatrix,sumRotation); // rotate in model matrix
+    } // end make model transform
+    
     var hMatrix = mat4.create(); // handedness matrix
     var pMatrix = mat4.create(); // projection matrix
     var vMatrix = mat4.create(); // view matrix
@@ -488,22 +597,27 @@ function renderModels() {
     
     // set up handedness, projection and view
     mat4.fromScaling(hMatrix,vec3.fromValues(-1,1,1)); // create handedness matrix
-    mat4.perspective(pMatrix,0.5*Math.PI,1,0.5,1.5); // create projection matrix
+    mat4.perspective(pMatrix,0.5*Math.PI,1,0.1,10); // create projection matrix
     mat4.lookAt(vMatrix,Eye,Center,Up); // create view matrix
     mat4.multiply(hpvMatrix,hMatrix,pMatrix); // handedness * projection
-    hpvMatrix = mat4.multiply(hpvMatrix,hpvMatrix,vMatrix); // handedness * projection * view
-    gl.uniformMatrix4fv(mMatrixULoc, false, mMatrix); // pass in the m matrix
-    gl.uniformMatrix4fv(pvmMatrixULoc, false, hpvMatrix); // pass in the hpv matrix
+    mat4.multiply(hpvMatrix,hpvMatrix,vMatrix); // handedness * projection * view
 
     // render each triangle set
-    var setMaterial; // the material properties of the current set
+    var currSet, setMaterial; // the tri set and its material properties
     for (var whichTriSet=0; whichTriSet<numTriangleSets; whichTriSet++) {
+        currSet = inputTriangles[whichTriSet];
+        
+        // make model transform, add to view project
+        makeModelTransform(currSet);
+        mat4.multiply(hpvmMatrix,hpvMatrix,mMatrix); // handedness * project * view * model
+        gl.uniformMatrix4fv(mMatrixULoc, false, mMatrix); // pass in the m matrix
+        gl.uniformMatrix4fv(pvmMatrixULoc, false, hpvmMatrix); // pass in the hpvm matrix
         
         // reflectivity: feed to the fragment shader
-        if (inputTriangles[whichTriSet].highlighted)
+        if (inputTriangles[whichTriSet].on)
             setMaterial = highlightMaterial; // highlight material
         else
-            setMaterial = inputTriangles[whichTriSet].material; // normal material
+            setMaterial = currSet.material; // normal material
         gl.uniform3fv(ambientULoc,setMaterial.ambient); // pass in the ambient reflectivity
         gl.uniform3fv(diffuseULoc,setMaterial.diffuse); // pass in the diffuse reflectivity
         gl.uniform3fv(specularULoc,setMaterial.specular); // pass in the specular reflectivity
@@ -522,7 +636,7 @@ function renderModels() {
     } // end for each triangle set
     
     // render each sphere
-    var sphere, hpvmMatrix, currentMaterial; // the current sphere, hpvm matrix, and material
+    var sphere, currentMaterial, instanceTransform = mat4.create(); // the current sphere and material
     gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffers[vertexBuffers.length-1]); // activate vertex buffer
     gl.vertexAttribPointer(vPosAttribLoc,3,gl.FLOAT,false,0,0); // feed vertex buffer to shader
     gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffers[normalBuffers.length-1]); // activate normal buffer
@@ -532,8 +646,17 @@ function renderModels() {
     for (var whichSphere=0; whichSphere<numSpheres; whichSphere++) {
         sphere = inputSpheres[whichSphere];
         
+        // define model transform, premult with pvmMatrix, feed to shader
+        makeModelTransform(sphere);
+        mat4.fromTranslation(instanceTransform,vec3.fromValues(sphere.x,sphere.y,sphere.z)); // recenter sphere
+        mat4.scale(mMatrix,mMatrix,vec3.fromValues(sphere.r,sphere.r,sphere.r)); // change size
+        mat4.multiply(mMatrix,instanceTransform,mMatrix); // apply recenter sphere
+        hpvmMatrix = mat4.multiply(hpvmMatrix,hpvMatrix,mMatrix); // premultiply with hpv matrix
+        gl.uniformMatrix4fv(mMatrixULoc, false, mMatrix); // pass in model matrix
+        gl.uniformMatrix4fv(pvmMatrixULoc, false, hpvmMatrix); // pass in handed project view model matrix
+
         // reflectivity: feed to the fragment shader
-        if (sphere.highlighted)
+        if (sphere.on)
             currentMaterial = highlightMaterial;
         else
             currentMaterial = sphere;
@@ -541,13 +664,6 @@ function renderModels() {
         gl.uniform3fv(diffuseULoc,currentMaterial.diffuse); // pass in the diffuse reflectivity
         gl.uniform3fv(specularULoc,currentMaterial.specular); // pass in the specular reflectivity
         gl.uniform1f(shininessULoc,currentMaterial.n); // pass in the specular exponent
-
-        // define model transform, premult with pvmMatrix, feed to shader
-        mat4.fromTranslation(mMatrix,vec3.fromValues(sphere.x,sphere.y,sphere.z)); // recenter sphere instance
-        mat4.scale(mMatrix,mMatrix,vec3.fromValues(sphere.r,sphere.r,sphere.r)); // change size
-        hpvmMatrix = mat4.multiply(hpvmMatrix,hpvMatrix,mMatrix); // premultiply with hpv matrix
-        gl.uniformMatrix4fv(mMatrixULoc, false, mMatrix); // pass in model matrix
-        gl.uniformMatrix4fv(pvmMatrixULoc, false, hpvmMatrix); // pass in handed project view model matrix
 
         // draw a transformed instance of the sphere
         gl.drawElements(gl.TRIANGLES,triSetSizes[triSetSizes.length-1],gl.UNSIGNED_SHORT,0); // render
