@@ -239,10 +239,20 @@ function setupWebGL() {
     // Set up keys
     document.onkeydown = handleKeyDown; // call this when key pressed
 
-    // Get the canvas and context
-    var canvas = document.getElementById("myWebGLCanvas"); // create a js canvas
-    gl = canvas.getContext("webgl"); // get a webgl object from it
+    // Get the image canvas, render an image in it
+    var imageCanvas = document.getElementById("myImageCanvas"); // create a 2d canvas
+    var cw = imageCanvas.width, ch = imageCanvas.height; 
+    imageContext = imageCanvas.getContext("2d"); 
+    var bkgdImage = new Image(); 
+    bkgdImage.src = "https://ncsucgclass.github.io/prog3/stars.jpg";
+    bkgdImage.onload = function(){
+        var iw = bkgdImage.width, ih = bkgdImage.height;
+        imageContext.drawImage(bkgdImage,0,0,iw,ih,0,0,cw,ch);   
+    } // end onload callback 
     
+    // create a webgl canvas and set it up
+    var webGLCanvas = document.getElementById("myWebGLCanvas"); // create a webgl canvas
+    gl = webGLCanvas.getContext("webgl"); // get a webgl object from it
     try {
       if (gl == null) {
         throw "unable to create gl context -- is your browser gl ready?";
@@ -589,11 +599,11 @@ function renderModels() {
     var mMatrix = mat4.create(); // model matrix
     var hpvMatrix = mat4.create(); // hand * proj * view matrices
     var hpvmMatrix = mat4.create(); // hand * proj * view * model matrices
-    const highlightMaterial = {ambient:[0.5,0.5,0], diffuse:[0.5,0.5,0], specular:[0,0,0], n:0}; // hlht mat
+    const highlightMaterial = {ambient:[0.5,0.5,0], diffuse:[0.5,0.5,0], specular:[0,0,0], n:1}; // hlht mat
     
     window.requestAnimationFrame(renderModels); // set up frame render callback
     
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
+    gl.clear(/*gl.COLOR_BUFFER_BIT |*/ gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
     
     // set up handedness, projection and view
     mat4.fromScaling(hMatrix,vec3.fromValues(-1,1,1)); // create handedness matrix
