@@ -244,7 +244,7 @@ function setupWebGL() {
     var cw = imageCanvas.width, ch = imageCanvas.height; 
     imageContext = imageCanvas.getContext("2d"); 
     var bkgdImage = new Image(); 
-    bkgdImage.src = "https://ncsucgclass.github.io/prog3/stars.jpg";
+    bkgdImage.src = "https://ncsucgclass.github.io/prog3/tree.jpg";
     bkgdImage.onload = function(){
         var iw = bkgdImage.width, ih = bkgdImage.height;
         imageContext.drawImage(bkgdImage,0,0,iw,ih,0,0,cw,ch);   
