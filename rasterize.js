@@ -601,7 +601,7 @@ function renderModels() {
     var hpvmMatrix = mat4.create(); // hand * proj * view * model matrices
     const highlightMaterial = {ambient:[0.5,0.5,0], diffuse:[0.5,0.5,0], specular:[0,0,0], n:1}; // hlht mat
     
-    window.requestAnimationFrame(renderModels); // set up frame render callback
+    window.requestAnimationFrame(renderModels); // set up frame render callbacks
     
     gl.clear(/*gl.COLOR_BUFFER_BIT |*/ gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
     
