@@ -245,6 +245,7 @@ function setupWebGL() {
       var cw = imageCanvas.width, ch = imageCanvas.height; 
       imageContext = imageCanvas.getContext("2d"); 
       var bkgdImage = new Image(); 
+      bkgdImage.crossOrigin = "Anonymous";
       bkgdImage.src = "https://ncsucgclass.github.io/prog3/sky.jpg";
       bkgdImage.onload = function(){
           var iw = bkgdImage.width, ih = bkgdImage.height;
