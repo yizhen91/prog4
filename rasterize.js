@@ -310,6 +310,8 @@ function setupWebGL() {
          gl.clearDepth(1.0); // use max when we clear the depth buffer
          gl.enable(gl.DEPTH_TEST); // use hidden surface removal (with zbuffering)
     
+         gl.depthFunc(gl.LESS);
+         gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
        }
      } // end try
      
@@ -443,13 +445,22 @@ function loadModels() {
                 triangleSet.fullData = inputTriangles[whichSet];
                 triangleSet.modelMatrix = mat4.create();
                 mat4.identity(triangleSet.modelMatrix);
+
                 triangleSet.center_view = vec3.create();
                 triangleSet.center_view = vec3.subtract(triangleSet.center_view, Eye, inputTriangles[whichSet].center);
 
-                if(triangleSet.fullData.material.alpha == 1.0)
+                if(triangleSet.fullData.material.alpha == 1.0 || triangleSet.fullData.material.alpha == 1)
+                {
                     opaqueBuffer.push(triangleSet);
+                    //console.log(opaqueBuffer.modelMatrix);
+                }   
+
                 else
-                    transparentBuffer.push(triangleSet);
+                {
+                    transparentBuffer.push(triangleSet);   
+                    //console.log(transparentBuffer.modelMatrix);
+                }
+                    
 
             } // end for each triangle set 
         	var temp = vec3.create();
@@ -644,6 +655,7 @@ function renderModels() {
     
     // construct the model transform matrix, based on model state
     function makeModelTransform(currModel) {
+        var mMatrix = mat4.create();
         var zAxis = vec3.create(), sumRotation = mat4.create(), temp = mat4.create(), negCtr = vec3.create();
 
         // move the model to the origin
@@ -668,12 +680,13 @@ function renderModels() {
         // translate model to current interactive orientation
         mat4.multiply(mMatrix,mat4.fromTranslation(temp,currModel.translation),mMatrix); // T(pos)*T(ctr)*R(ax)*S(1.2)*T(-ctr)
         
+        return mMatrix;
     } // end make model transform
     
     // var hMatrix = mat4.create(); // handedness matrix
     var pMatrix = mat4.create(); // projection matrix
     var vMatrix = mat4.create(); // view matrix
-    var mMatrix = mat4.create(); // model matrix
+   // var mMatrix = mat4.create(); // model matrix
     var pvMatrix = mat4.create(); // hand * proj * view matrices
     var pvmMatrix = mat4.create(); // hand * proj * view * model matrices
     
@@ -688,46 +701,153 @@ function renderModels() {
     mat4.multiply(pvMatrix,pvMatrix,pMatrix); // projection
     mat4.multiply(pvMatrix,pvMatrix,vMatrix); // projection * view
 
-    // render each triangle set
-    var currSet; // the tri set and its material properties
-    for (var whichTriSet=0; whichTriSet<numTriangleSets; whichTriSet++) {
-        //currSet = inputTriangles[whichTriSet];
-        currSet = inputTriangles[whichTriSet]
-        // make model transform, add to view project
-        makeModelTransform(currSet);
-        mat4.multiply(pvmMatrix,pvMatrix,mMatrix); // project * view * model
-        gl.uniformMatrix4fv(mMatrixULoc, false, mMatrix); // pass in the m matrix
-        gl.uniformMatrix4fv(pvmMatrixULoc, false, pvmMatrix); // pass in the hpvm matrix
-        
-        // reflectivity: feed to the fragment shader
-        gl.uniform3fv(ambientULoc,currSet.material.ambient); // pass in the ambient reflectivity
-        gl.uniform3fv(diffuseULoc,currSet.material.diffuse); // pass in the diffuse reflectivity
-        gl.uniform3fv(specularULoc,currSet.material.specular); // pass in the specular reflectivity
-        gl.uniform1f(shininessULoc,currSet.material.n); // pass in the specular exponent
-        gl.uniform1f(alphaULoc,currSet.material.alpha);
-       // gl.uniform1i(Blinn_PhongULoc, Blinn_Phong);
-       
+    // opaque triangle
+    for (var whichTriSet=0; whichTriSet<opaqueBuffer.length; whichTriSet++)
+    {
+        gl.depthMask(true);
+
+        // opaqueBuffer 
+        //triangleSet.model = "triangle";
+        //triangleSet.setNumber = whichSet;
+        //triangleSet.center = inputTriangles[whichSet].center;
+        //triangleSet.fullData = inputTriangles[whichSet];
+        var currSet = opaqueBuffer[whichTriSet];
+        var opaqueModelMatrix = makeModelTransform(currSet.fullData);
+        mat4.multiply(pvmMatrix,pvMatrix,opaqueModelMatrix);
+        gl.uniformMatrix4fv(mMatrixULoc, false, opaqueModelMatrix);
+        gl.uniformMatrix4fv(pvmMatrixULoc, false, pvmMatrix);
+
+        gl.uniform3fv(ambientULoc,currSet.fullData.material.ambient); // pass in the ambient reflectivity
+        gl.uniform3fv(diffuseULoc,currSet.fullData.material.diffuse); // pass in the diffuse reflectivity
+        gl.uniform3fv(specularULoc,currSet.fullData.material.specular); // pass in the specular reflectivity
+        gl.uniform1f(shininessULoc,currSet.fullData.material.n); // pass in the specular exponent
+        gl.uniform1f(alphaULoc,currSet.fullData.material.alpha);
 
         // vertex buffer: activate and feed into vertex shader
-        gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffers[whichTriSet]); // activate
+        gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffers[currSet.setNumber]); // activate
         gl.vertexAttribPointer(vPosAttribLoc,3,gl.FLOAT,false,0,0); // feed
-        gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffers[whichTriSet]); // activate
+        gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffers[currSet.setNumber]); // activate
         gl.vertexAttribPointer(vNormAttribLoc,3,gl.FLOAT,false,0,0); // feed
         
-        gl.bindBuffer(gl.ARRAY_BUFFER, textureBuffers[whichTriSet]);
+        gl.bindBuffer(gl.ARRAY_BUFFER, textureBuffers[currSet.setNumber]);
         gl.vertexAttribPointer(vUVTextureLoc,2,gl.FLOAT,false,0,0);
 
         gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, triangleTexture[whichTriSet]);
+        gl.bindTexture(gl.TEXTURE_2D, triangleTexture[currSet.setNumber]);
         gl.uniform1i(uSamplerLoc, 0);
 
         gl.uniform1i(ugToogleTexture, toggleTexture);
 
         // triangle buffer: activate and render
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,triangleBuffers[whichTriSet]); // activate
-        gl.drawElements(gl.TRIANGLES,3*triSetSizes[whichTriSet],gl.UNSIGNED_SHORT,0); // render
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,triangleBuffers[currSet.setNumber]); // activate
+        gl.drawElements(gl.TRIANGLES,3*triSetSizes[currSet.setNumber],gl.UNSIGNED_SHORT,0); // render
+
+    }
+
+
+    for (var whichTriSet=transparentBuffer.length-1; whichTriSet>=0; whichTriSet--)
+    {
+        var currSet = transparentBuffer[whichTriSet];
+        currSet.modelMatrix = makeModelTransform(currSet.fullData);
+    }
+        transparentBuffer.sort(function(a, b)
+        {
         
-    } // end for each triangle set
+            var center_a = vec4.fromValues(a.center[0],a.center[1],a.center[2],1.0);
+            vec4.transformMat4(center_a, center_a, a.modelMatrix);
+            vec4.scale(center_a, center_a, 1/center_a[3]);
+
+            var center_b = vec4.fromValues(b.center[0],b.center[1],b.center[2],1.0);
+            vec4.transformMat4(center_b, center_b, b.modelMatrix);
+            vec4.scale(center_b, center_b, 1/center_b[3]);
+            
+            return(parseFloat(Eye[2]-center_a[2])-parseFloat(Eye[2]-center_b[2]));
+        });
+
+    for (var whichTriSet=transparentBuffer.length-1; whichTriSet>=0; whichTriSet--)
+    {
+        gl.depthMask(false);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+        gl.enable(gl.BLEND);
+
+        //triangleSet.model = "triangle";
+        //triangleSet.setNumber = whichSet;
+        //triangleSet.center = inputTriangles[whichSet].center;
+        //triangleSet.fullData = inputTriangles[whichSet];
+
+        var currSet = transparentBuffer[whichTriSet];
+        mat4.multiply(pvmMatrix,pvMatrix,currSet.modelMatrix); // project * view * model
+        gl.uniformMatrix4fv(mMatrixULoc, false, currSet.modelMatrix); // pass in the m matrix
+        gl.uniformMatrix4fv(pvmMatrixULoc, false, pvmMatrix); // pass in the hpvm matrix
+
+        // reflectivity: feed to the fragment shader
+        gl.uniform3fv(ambientULoc,currSet.fullData.material.ambient); // pass in the ambient reflectivity
+        gl.uniform3fv(diffuseULoc,currSet.fullData.material.diffuse); // pass in the diffuse reflectivity
+        gl.uniform3fv(specularULoc,currSet.fullData.material.specular); // pass in the specular reflectivity
+        gl.uniform1f(shininessULoc,currSet.fullData.material.n); // pass in the specular exponent
+        gl.uniform1f(alphaULoc,currSet.fullData.material.alpha);
+
+        //vertex buffer: activate and feed into vertex shader
+        gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffers[currSet.setNumber]); // activate
+        gl.vertexAttribPointer(vPosAttribLoc,3,gl.FLOAT,false,0,0); // feed
+        gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffers[currSet.setNumber]); // activate
+        gl.vertexAttribPointer(vNormAttribLoc,3,gl.FLOAT,false,0,0); // feed
+        
+        gl.bindBuffer(gl.ARRAY_BUFFER, textureBuffers[currSet.setNumber]);
+        gl.vertexAttribPointer(vUVTextureLoc,2,gl.FLOAT,false,0,0);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, triangleTexture[currSet.setNumber]);
+        gl.uniform1i(uSamplerLoc, 0);
+
+        gl.uniform1i(ugToogleTexture, toggleTexture);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,triangleBuffers[currSet.setNumber]); // activate
+        gl.drawElements(gl.TRIANGLES,3*triSetSizes[currSet.setNumber],gl.UNSIGNED_SHORT,0); // render
+       
+
+    }
+
+    // render each triangle set
+    // var currSet; // the tri set and its material properties
+    // for (var whichTriSet=0; whichTriSet<numTriangleSets; whichTriSet++) {
+    //     //currSet = inputTriangles[whichTriSet];
+    //     currSet = inputTriangles[whichTriSet]
+    //     // make model transform, add to view project
+    //     makeModelTransform(currSet);
+    //     mat4.multiply(pvmMatrix,pvMatrix,mMatrix); // project * view * model
+    //     gl.uniformMatrix4fv(mMatrixULoc, false, mMatrix); // pass in the m matrix
+    //     gl.uniformMatrix4fv(pvmMatrixULoc, false, pvmMatrix); // pass in the hpvm matrix
+        
+    //     // reflectivity: feed to the fragment shader
+    //     gl.uniform3fv(ambientULoc,currSet.material.ambient); // pass in the ambient reflectivity
+    //     gl.uniform3fv(diffuseULoc,currSet.material.diffuse); // pass in the diffuse reflectivity
+    //     gl.uniform3fv(specularULoc,currSet.material.specular); // pass in the specular reflectivity
+    //     gl.uniform1f(shininessULoc,currSet.material.n); // pass in the specular exponent
+    //     gl.uniform1f(alphaULoc,currSet.material.alpha);
+    //    // gl.uniform1i(Blinn_PhongULoc, Blinn_Phong);
+       
+
+    //     // vertex buffer: activate and feed into vertex shader
+    //     gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffers[whichTriSet]); // activate
+    //     gl.vertexAttribPointer(vPosAttribLoc,3,gl.FLOAT,false,0,0); // feed
+    //     gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffers[whichTriSet]); // activate
+    //     gl.vertexAttribPointer(vNormAttribLoc,3,gl.FLOAT,false,0,0); // feed
+        
+    //     gl.bindBuffer(gl.ARRAY_BUFFER, textureBuffers[whichTriSet]);
+    //     gl.vertexAttribPointer(vUVTextureLoc,2,gl.FLOAT,false,0,0);
+
+    //     gl.activeTexture(gl.TEXTURE0);
+    //     gl.bindTexture(gl.TEXTURE_2D, triangleTexture[whichTriSet]);
+    //     gl.uniform1i(uSamplerLoc, 0);
+
+    //     gl.uniform1i(ugToogleTexture, toggleTexture);
+
+    //     // triangle buffer: activate and render
+    //     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,triangleBuffers[whichTriSet]); // activate
+    //     gl.drawElements(gl.TRIANGLES,3*triSetSizes[whichTriSet],gl.UNSIGNED_SHORT,0); // render
+        
+    // } // end for each triangle set
 } // end render model
 
 
